@@ -35,12 +35,12 @@ export function emptyState(): TrackerState {
 export function loadState(): TrackerState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultState();
+    if (!raw) return emptyState();
     const parsed = JSON.parse(raw) as TrackerState;
-    if (!Array.isArray(parsed.matches)) return defaultState();
+    if (!Array.isArray(parsed.matches)) return emptyState();
     return { matches: parsed.matches, players: buildPlayers(parsed.matches) };
   } catch {
-    return defaultState();
+    return emptyState();
   }
 }
 

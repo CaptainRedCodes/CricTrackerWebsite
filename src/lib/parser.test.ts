@@ -7,6 +7,7 @@ describe("cricket helpers", () => {
   it("normalizes player names", () => {
     expect(normalizePlayerName("Sughosh Rao ( C )")).toBe("Sughosh Rao");
     expect(normalizePlayerName("Shreyas S (c) (RHB)")).toBe("Shreyas S");
+    expect(normalizePlayerName("†Shitanshu Saini")).toBe("Shitanshu Saini");
   });
 
   it("classifies common dismissals", () => {

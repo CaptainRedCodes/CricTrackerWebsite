@@ -2,6 +2,7 @@ export function normalizePlayerName(rawName: string): string {
   return rawName
     .replace(/\(\s*[cC]\s*\)/g, "")
     .replace(/\((RHB|LHB)\)/gi, "")
+    .replace(/[†‡]/g, "") // CricHeroes wicketkeeper markers (e.g. "st †Shitanshu Saini b Ashish")
     .replace(/\s+/g, " ")
     .trim();
 }
