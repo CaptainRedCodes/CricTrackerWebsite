@@ -272,12 +272,9 @@ set search_path = ''
 as $$
   with catches as (
     select
-      trim(regexp_replace(
-        regexp_replace(bp.dismissal_raw, '^c\s+\S+\s+b\s+', '', 'i'),
-        '\s*$', ''
-      )) as fielder_name
+      trim(substring(bp.dismissal_raw from '^c\s+(.+?)\s+b\s+')) as fielder_name
     from public.batting_performances bp
-    where bp.dismissal_raw ~* '^c\s+\S+\s+b\s+'
+    where bp.dismissal_raw ~* '^c\s+.+?\s+b\s+'
   ),
   run_outs as (
     select
@@ -287,12 +284,9 @@ as $$
   ),
   stumpings as (
     select
-      trim(regexp_replace(
-        regexp_replace(bp.dismissal_raw, '^st\s+\S+\s+b\s+', '', 'i'),
-        '\s*$', ''
-      )) as fielder_name
+      trim(substring(bp.dismissal_raw from '^st\s+(.+?)\s+b\s+')) as fielder_name
     from public.batting_performances bp
-    where bp.dismissal_raw ~* '^st\s+\S+\s+b\s+'
+    where bp.dismissal_raw ~* '^st\s+.+?\s+b\s+'
   ),
   combined as (
     select fielder_name as name, 'catch' as kind from catches

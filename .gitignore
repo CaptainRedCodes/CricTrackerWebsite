@@ -2,3 +2,5 @@ node_modules
 samplepdf
 scripts
 .vercel
+.env
+dist/

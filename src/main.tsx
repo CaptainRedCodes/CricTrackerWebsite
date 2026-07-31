@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowDownRight, ArrowUpRight, BarChart3, CalendarDays, CheckCircle2, Cloud, Database, Handshake, Home, MapPin, Menu, RefreshCw, Shield, Swords, X, Target, TrendingUp, Trophy, UploadCloud, Users, Zap, Command } from "lucide-react";
+import { BarChart3, CalendarDays, CheckCircle2, Cloud, Database, Handshake, Home, MapPin, Menu, RefreshCw, Shield, Swords, Trophy, UploadCloud, Users, X, Command } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
 import type { BattingAggregate, BowlingAggregate, FieldingAggregate, ForAgainstItem, Innings, Match, MatchTrendItem, RunRateItem, TeamAggregatesResponse, TrackerState, VenueAggregate } from "./types";
 import { appendMatch, defaultState, emptyState, findDuplicateMatch, loadState, saveState } from "./lib/storage";

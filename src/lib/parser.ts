@@ -41,8 +41,7 @@ export function parseBattingRow(line: string, inningsId = "innings", team: TeamN
   const splitIndex = styleIndex === -1 ? Math.max(1, middle.findIndex((token) => /^(not|run|retired|b|c|lbw|st|hit)$/i.test(token))) : styleIndex;
   if (splitIndex < 1) throw parserError(`could not find batter name/status boundary in row: "${line}"`);
 
-  const nameTokens = middle.slice(0, styleIndex);
-  const rawNameTokens = styleIndex === -1 ? middle.slice(0, splitIndex) : nameTokens;
+  const rawNameTokens = styleIndex === -1 ? middle.slice(0, splitIndex) : middle.slice(0, styleIndex);
   const battingStyle = styleIndex === -1 ? undefined : middle[styleIndex].replace(/[()]/g, "").toUpperCase();
   const isCaptain = rawNameTokens.some((token) => /^\([cC]\)$/.test(token));
   const playerNameRaw = normalizePlayerName(rawNameTokens.join(" "));
@@ -236,16 +235,14 @@ function findFirstNumberedLine(lines: string[], startIndex: number): number {
 }
 
 function splitTwoSquadNames(row: string, teamOne: TeamName, teamTwo: TeamName): [string, string] {
-  const knownTeamTwoNames = ["Eqbal", "Aditya", "Manu Madhavan", "Shreyas S", "Niraj Subedi", "Yogi", String(teamTwo)];
-  const secondStart = knownTeamTwoNames
-    .filter((name) => name && name !== String(teamTwo))
-    .map((name) => row.indexOf(name))
-    .filter((index) => index > 0)
-    .sort((a, b) => a - b)[0];
-  if (secondStart) return [row.slice(0, secondStart).trim(), row.slice(secondStart).trim()];
-  const knownTeamOneNames = ["Ramit Raj", "Bhaskar Bose", "Sughosh Rao", "Gaurav", "Munit Jindal", "Mohit Momaya", String(teamOne)];
-  const first = knownTeamOneNames.find((name) => name && name !== String(teamOne) && row.startsWith(name));
-  if (first) return [first, row.slice(first.length).trim()];
+  const teamTwoStr = String(teamTwo);
+  const teamOneStr = String(teamOne);
+  const teamTwoIdx = row.indexOf(teamTwoStr);
+  if (teamTwoIdx > 0) return [row.slice(0, teamTwoIdx).trim(), row.slice(teamTwoIdx).trim()];
+  const teamOneIdx = row.indexOf(teamOneStr);
+  if (teamOneIdx > 0) return [row.slice(0, teamOneIdx).trim(), row.slice(teamOneIdx).trim()];
+  const doubleSpace = row.indexOf("  ");
+  if (doubleSpace > 0) return [row.slice(0, doubleSpace).trim(), row.slice(doubleSpace).trim()];
   const tokens = row.split(/\s+/);
   const midpoint = Math.ceil(tokens.length / 2);
   return [tokens.slice(0, midpoint).join(" "), tokens.slice(midpoint).join(" ")];

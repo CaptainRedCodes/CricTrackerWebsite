@@ -56,7 +56,7 @@ export function playerBowlingStats(matches: Match[]) {
       wides: 0,
       noballs: 0,
       bestWickets: 0,
-      bestRuns: 999
+      bestRuns: Infinity
     };
     current.innings += 1;
     current.balls += oversToBalls(row.overs);
@@ -78,7 +78,7 @@ export function playerBowlingStats(matches: Match[]) {
     economy: row.balls ? ((row.runsConceded * 6) / row.balls).toFixed(2) : "-",
     average: row.wickets ? (row.runsConceded / row.wickets).toFixed(2) : "-",
     strikeRate: row.wickets ? (row.balls / row.wickets).toFixed(2) : "-",
-    bestFigures: `${row.bestWickets}/${row.bestRuns === 999 ? 0 : row.bestRuns}`
+    bestFigures: `${row.bestWickets}/${Number.isFinite(row.bestRuns) ? row.bestRuns : 0}`
   })).sort((a, b) => b.wickets - a.wickets || Number(a.economy) - Number(b.economy));
 }
 
