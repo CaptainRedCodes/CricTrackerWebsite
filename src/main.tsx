@@ -3,12 +3,13 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowDownRight, ArrowUpRight, BarChart3, CalendarDays, CheckCircle2, Cloud, Database, Handshake, Home, MapPin, Menu, RefreshCw, Shield, Swords, X, Target, TrendingUp, Trophy, UploadCloud, Users, Zap, Command } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
-import type { Innings, Match, TrackerState } from "./types";
+import type { BattingAggregate, BowlingAggregate, FieldingAggregate, ForAgainstItem, Innings, Match, MatchTrendItem, RunRateItem, TeamAggregatesResponse, TrackerState, VenueAggregate } from "./types";
 import { appendMatch, defaultState, emptyState, findDuplicateMatch, loadState, saveState } from "./lib/storage";
-import { isSupabaseConfigured, loadRemoteState, saveRemoteMatch } from "./lib/supabase";
+import { isSupabaseConfigured, loadRemoteState, saveRemoteMatch, loadPaginatedMatches, loadMatchDetail, fetchBattingAggregates, fetchBowlingAggregates, fetchFieldingAggregates, fetchTeamAggregates, fetchVenueAggregates } from "./lib/supabase";
 import {
   batterScatter, bowlerScatter, boundaryStats, dashboardStats, fieldingBreakdown, fieldingStats, groundStats, inningsWorm, matchRunRates, matchTrend, matchWorm, mvpStats, playerBattingStats, playerBowlingStats, playerFormSeries, runsComposition, teamForAgainst, teamStats, teamWinRate
 } from "./lib/stats";
+import { ballsToOversText, formatAverage, normalizePlayerName, oversToBalls, playerIdFromName } from "./lib/cricket";
 import { extractPdfPages } from "./lib/pdf";
 import { parseMatchFromPages } from "./lib/parser";
 import "./styles.css";
@@ -140,14 +141,93 @@ function StorageBadge() {
 /* ──────── DASHBOARD ──────── */
 function Dashboard() {
   const { state, ready, status, refetch } = useApp();
-  const s = dashboardStats(state.matches);
-  const rr = matchRunRates(state.matches);
-  const trend = matchTrend(state.matches);
-  const batting = playerBattingStats(state.matches).filter((p) => p.runs > 0).slice(0, 6);
-  const bowling = playerBowlingStats(state.matches).filter((p) => p.wickets > 0).slice(0, 6);
-  const hur = teamWinRate(state.matches, "HURRICANES");
-  const dom = teamWinRate(state.matches, "DOMINATORS");
-  const allComp = runsComposition(state.matches);
+
+  const [battingAgg, setBattingAgg] = useState<BattingAggregate[] | null>(null);
+  const [bowlingAgg, setBowlingAgg] = useState<BowlingAggregate[] | null>(null);
+  const [fieldingAgg, setFieldingAgg] = useState<FieldingAggregate[] | null>(null);
+  const [teamAgg, setTeamAgg] = useState<TeamAggregatesResponse | null>(null);
+  const [aggReady, setAggReady] = useState(!isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    Promise.all([
+      fetchBattingAggregates(), fetchBowlingAggregates(),
+      fetchFieldingAggregates(), fetchTeamAggregates()
+    ]).then(([bat, bowl, fld, tm]) => {
+      setBattingAgg(bat); setBowlingAgg(bowl); setFieldingAgg(fld); setTeamAgg(tm);
+      if (bat.length || bowl.length || fld.length || tm.teamStats.length) setAggReady(true);
+    }).catch(() => setAggReady(true));
+  }, []);
+
+  const useClient = !isSupabaseConfigured || !teamAgg;
+
+  const s = useClient ? dashboardStats(state.matches) : {
+    latestMatch: teamAgg!.latestMatch,
+    matchesPlayed: teamAgg!.teamStats.reduce((s, t) => s + t.matches, 0) / Math.max(teamAgg!.teamStats.length, 1),
+    topBatter: battingAgg?.[0] ? { ...battingAgg[0], strikeRate: battingAgg[0].balls ? ((battingAgg[0].runs * 100) / battingAgg[0].balls).toFixed(2) : "-" } : undefined,
+    topBowler: bowlingAgg?.[0] ? { ...bowlingAgg[0], economy: bowlingAgg[0].balls ? ((bowlingAgg[0].runsConceded * 6) / bowlingAgg[0].balls).toFixed(2) : "-" } : undefined,
+    topFielder: fieldingAgg?.[0],
+    topMvp: (() => {
+      if (!battingAgg || !bowlingAgg || !fieldingAgg) return undefined;
+      const m = new Map<string, { name: string; points: number; runs: number; wickets: number; fielding: number; sixes: number; dots: number }>();
+      for (const b of battingAgg) {
+        const pts = b.runs + b.fours * 2 + b.sixes * 4 + b.notOuts * 5;
+        m.set(b.playerId, { name: b.name, points: pts, runs: b.runs, wickets: 0, fielding: 0, sixes: b.sixes, dots: 0 });
+      }
+      for (const b of bowlingAgg) {
+        const entry = m.get(b.playerId) ?? { name: b.name, points: 0, runs: 0, wickets: 0, fielding: 0, sixes: 0, dots: 0 };
+        entry.points += b.wickets * 25 + b.dotBalls * 2 + b.maidens * 10;
+        entry.wickets = b.wickets; entry.dots = b.dotBalls;
+        m.set(b.playerId, entry);
+      }
+      for (const f of fieldingAgg) {
+        const clean = normalizePlayerName(f.name); const pid = playerIdFromName(clean);
+        const entry = m.get(pid) ?? m.get(f.playerId);
+        if (entry) { entry.points += f.catches * 10 + f.runOuts * 12 + f.stumpings * 12; entry.fielding = f.total; }
+      }
+      const sorted = [...m.values()].sort((a, b) => b.points - a.points);
+      return sorted[0];
+    })(),
+    teams: teamAgg?.teamStats ?? []
+  } as ReturnType<typeof dashboardStats>;
+
+  const rr = useClient ? matchRunRates(state.matches) : teamAgg!.runRates.map(r => ({
+    name: r.name, [r.team1]: r.rr1, [r.team2]: r.rr2
+  }));
+  const trend = useClient ? matchTrend(state.matches) : teamAgg!.matchTrends.map(t => ({
+    name: t.name, [t.team1]: t.score1, [t.team2]: t.score2, total: t.total, wickets: t.wickets1 + t.wickets2, extras: t.extras
+  }));
+  const batting = useClient
+    ? playerBattingStats(state.matches).filter((p: any) => p.runs > 0).slice(0, 6)
+    : (battingAgg ?? []).filter(p => p.runs > 0).slice(0, 6).map(b => ({ ...b, strikeRate: b.balls ? ((b.runs * 100) / b.balls).toFixed(2) : "-" }));
+  const bowling = useClient
+    ? playerBowlingStats(state.matches).filter((p: any) => p.wickets > 0).slice(0, 6)
+    : (bowlingAgg ?? []).filter(p => p.wickets > 0).slice(0, 6).map(b => ({ ...b, overs: ballsToOversText(b.balls), economy: b.balls ? ((b.runsConceded * 6) / b.balls).toFixed(2) : "-", name: b.name }));
+  const hur = useClient ? teamWinRate(state.matches, "HURRICANES") : (() => {
+    const t = teamAgg!.teamStats.find(x => x.team === "HURRICANES");
+    const d = t ? (t.wins + t.losses) : 0;
+    return { team: "HURRICANES", wins: t?.wins ?? 0, losses: t?.losses ?? 0, noResult: (t?.matches ?? 0) - (t?.wins ?? 0) - (t?.losses ?? 0), total: t?.matches ?? 0, rate: d ? (t?.wins ?? 0) / d : 0 };
+  })();
+  const dom = useClient ? teamWinRate(state.matches, "DOMINATORS") : (() => {
+    const t = teamAgg!.teamStats.find(x => x.team === "DOMINATORS");
+    const d = t ? (t.wins + t.losses) : 0;
+    return { team: "DOMINATORS", wins: t?.wins ?? 0, losses: t?.losses ?? 0, noResult: (t?.matches ?? 0) - (t?.wins ?? 0) - (t?.losses ?? 0), total: t?.matches ?? 0, rate: d ? (t?.wins ?? 0) / d : 0 };
+  })();
+  const allComp = useClient ? runsComposition(state.matches) : (() => {
+    const agg = new Map<string, { fours: number; sixes: number; rotation: number }>();
+    for (const c of (teamAgg?.composition ?? [])) {
+      const e = agg.get(c.team) ?? { fours: 0, sixes: 0, rotation: 0 };
+      e.fours += c.fours; e.sixes += c.sixes; e.rotation += c.rotation;
+      agg.set(c.team, e);
+    }
+    let f = 0, s = 0, r = 0;
+    for (const v of agg.values()) { f += v.fours; s += v.sixes; r += v.rotation; }
+    return [
+      { name: "Fours", value: f, color: "#22c55e" },
+      { name: "Sixes", value: s, color: "#f97316" },
+      { name: "Rotation", value: r, color: "#3b82f6" }
+    ];
+  })();
   const latest = s.latestMatch;
   const compositionTotal = allComp.reduce((sum, item) => sum + item.value, 0);
   const hasMomentum = rr.length > 1;
@@ -251,35 +331,65 @@ function Dashboard() {
 /* ──────── MATCHES ──────── */
 function Matches() {
   const { state } = useApp();
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [pageMatches, setPageMatches] = useState<Match[] | null>(null);
+  const [loading, setLoading] = useState(isSupabaseConfigured);
+  const PAGE_SIZE = 20;
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) { setPageMatches(null); setLoading(false); return; }
+    setLoading(true);
+    loadPaginatedMatches(page, PAGE_SIZE).then(r => {
+      setPageMatches(r.matches); setTotal(r.total);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [page]);
+
+  const matches: Match[] = isSupabaseConfigured ? (pageMatches ?? []) : state.matches;
+  const displayTotal = isSupabaseConfigured ? total : state.matches.length;
+  const totalPages = Math.max(1, Math.ceil(displayTotal / PAGE_SIZE));
+
   return (
     <Page title="Match history">
-      {state.matches.length === 0 && <section className="emptyState"><CalendarDays size={42} /><h2>No matches yet</h2><p>Imported scorecards show up here.</p></section>}
-      <div className="list">
-        {state.matches.map(m => {
-          const won = m.winnerTeam;
-          const maxRuns = Math.max(...m.innings.map(i => i.totalRuns), 1);
-          return (
-            <Link className="matchRow" to={`/matches/${m.id}`} key={m.id}>
-              <div className="matchTeams">
-                <strong>{m.teamA}</strong>
-                <span className="vs">vs</span>
-                <strong>{m.teamB}</strong>
-                <div className="matchMeta">{m.matchDate} · {m.ground}</div>
-              </div>
-              <div className="scorePills">
-                {m.innings.map(i => (
-                  <span key={i.id} className={`pill pillBar ${won === i.battingTeam ? "win" : ""}`}>
-                    <span className="pillName">{i.battingTeam}</span>
-                    <span className="pillScore">{i.totalRuns}/{i.totalWickets}</span>
-                    <span className="pillBarTrack"><span className="pillBarFill" style={{ width: `${(i.totalRuns / maxRuns) * 100}%`, background: i.battingTeam === "HURRICANES" ? HUR : DOM }} /></span>
-                  </span>
-                ))}
-              </div>
-              <div className="resultText">{m.resultText}</div>
-            </Link>
-          );
-        })}
-      </div>
+      {loading && <p className="notice">Loading matches...</p>}
+      {!loading && matches.length === 0 && <section className="emptyState"><CalendarDays size={42} /><h2>No matches yet</h2><p>Imported scorecards show up here.</p></section>}
+      {matches.length > 0 && (
+        <>
+          <div className="list">
+            {matches.map(m => {
+              const won = m.winnerTeam;
+              const maxRuns = Math.max(...m.innings.map(i => i.totalRuns), 1);
+              return (
+                <Link className="matchRow" to={`/matches/${m.id}`} key={m.id}>
+                  <div className="matchTeams">
+                    <strong>{m.teamA}</strong>
+                    <span className="vs">vs</span>
+                    <strong>{m.teamB}</strong>
+                    <div className="matchMeta">{m.matchDate} · {m.ground}</div>
+                  </div>
+                  <div className="scorePills">
+                    {m.innings.map(i => (
+                      <span key={i.id} className={`pill pillBar ${won === i.battingTeam ? "win" : ""}`}>
+                        <span className="pillName">{i.battingTeam}</span>
+                        <span className="pillScore">{i.totalRuns}/{i.totalWickets}</span>
+                        <span className="pillBarTrack"><span className="pillBarFill" style={{ width: `${(i.totalRuns / maxRuns) * 100}%`, background: i.battingTeam === "HURRICANES" ? HUR : DOM }} /></span>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="resultText">{m.resultText}</div>
+                </Link>
+              );
+            })}
+          </div>
+          {totalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 20, alignItems: "center" }}>
+              <button className="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={{ minWidth: 80 }}>Previous</button>
+              <span style={{ color: "var(--text-dim)", fontSize: ".82rem" }}>Page {page} of {totalPages} ({displayTotal} matches)</span>
+              <button className="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={{ minWidth: 80 }}>Next</button>
+            </div>
+          )}
+        </>
+      )}
     </Page>
   );
 }
@@ -288,7 +398,18 @@ function Matches() {
 function MatchDetail() {
   const { id } = useParams();
   const { state } = useApp();
-  const m = state.matches.find(x => x.id === id);
+  const [match, setMatch] = useState<Match | null>(null);
+  const [loading, setLoading] = useState(isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !id) { setLoading(false); return; }
+    loadMatchDetail(id).then(m => {
+      if (m) setMatch(m);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [id]);
+
+  const m = isSupabaseConfigured ? (match ?? state.matches.find(x => x.id === id)) : state.matches.find(x => x.id === id);
+  if (loading) return <Page title="Loading..."><p className="notice">Loading match details...</p></Page>;
   if (!m) return <Page title="Not found"><p>Match not found.</p></Page>;
   return (
     <Page title={`${m.teamA} vs ${m.teamB}`}>
@@ -328,13 +449,60 @@ function MatchDetail() {
 function Players() {
   const { state } = useApp();
   const [tab, setTab] = useState("runs");
-  const batting = playerBattingStats(state.matches);
-  const bowling = playerBowlingStats(state.matches);
-  const mvp = mvpStats(state.matches);
-  const fielding = fieldingStats(state.matches);
-  const boundaries = boundaryStats(state.matches);
-  const economy = [...bowling].sort((a, b) => Number(a.economy) - Number(b.economy));
-  const average = [...batting].sort((a, b) => Number(b.average === "-" ? -1 : b.average) - Number(a.average === "-" ? -1 : a.average));
+
+  const [battingAgg, setBattingAgg] = useState<BattingAggregate[] | null>(null);
+  const [bowlingAgg, setBowlingAgg] = useState<BowlingAggregate[] | null>(null);
+  const [fieldingAgg, setFieldingAgg] = useState<FieldingAggregate[] | null>(null);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    Promise.all([fetchBattingAggregates(), fetchBowlingAggregates(), fetchFieldingAggregates()])
+      .then(([bat, bowl, fld]) => { setBattingAgg(bat); setBowlingAgg(bowl); setFieldingAgg(fld); })
+      .catch(() => {});
+  }, []);
+
+  const useServer = isSupabaseConfigured && battingAgg !== null && bowlingAgg !== null && fieldingAgg !== null;
+
+  const batting = useServer
+    ? battingAgg!.map(b => ({ ...b, average: formatAverage(b.runs, b.dismissals), strikeRate: b.balls ? ((b.runs * 100) / b.balls).toFixed(2) : "-" }))
+        .sort((a: any, b: any) => b.runs - a.runs)
+    : playerBattingStats(state.matches);
+  const bowling = useServer
+    ? bowlingAgg!.map(b => ({ ...b, overs: ballsToOversText(b.balls), economy: b.balls ? ((b.runsConceded * 6) / b.balls).toFixed(2) : "-", average: b.wickets ? (b.runsConceded / b.wickets).toFixed(2) : "-", strikeRate: b.wickets ? (b.balls / b.wickets).toFixed(2) : "-", bestFigures: `${b.bestWickets}/${b.bestRuns === 0 ? 0 : b.bestRuns}`, name: b.name }))
+        .sort((a: any, b: any) => b.wickets - a.wickets || Number(a.economy) - Number(b.economy))
+    : playerBowlingStats(state.matches);
+  const mvp = useServer
+    ? (() => {
+        const m = new Map<string, any>();
+        for (const b of battingAgg!) {
+          m.set(b.playerId, { playerId: b.playerId, name: b.name, points: b.runs + b.fours * 2 + b.sixes * 4 + b.notOuts * 5, runs: b.runs, wickets: 0, fielding: 0, sixes: b.sixes, dots: 0 });
+        }
+        for (const b of bowlingAgg!) {
+          const e = m.get(b.playerId) ?? { playerId: b.playerId, name: b.name, points: 0, runs: 0, wickets: 0, fielding: 0, sixes: 0, dots: 0 };
+          e.points += b.wickets * 25 + b.dotBalls * 2 + b.maidens * 10; e.wickets = b.wickets; e.dots = b.dotBalls;
+          m.set(b.playerId, e);
+        }
+        for (const f of fieldingAgg!) {
+          const clean = normalizePlayerName(f.name); const pid = playerIdFromName(clean);
+          const e = m.get(pid) ?? m.get(f.playerId);
+          if (e) { e.points += f.catches * 10 + f.runOuts * 12 + f.stumpings * 12; e.fielding = f.total; }
+        }
+        return [...m.values()].sort((a: any, b: any) => b.points - a.points);
+      })()
+    : mvpStats(state.matches);
+  const fielding = useServer
+    ? (fieldingAgg ?? []).map((f: any) => ({ ...f, name: f.name }))
+    : fieldingStats(state.matches);
+  const boundaries = useServer
+    ? battingAgg!.map(b => ({ ...b, boundaries: b.fours + b.sixes, boundaryRuns: b.fours * 4 + b.sixes * 6 }))
+        .sort((a, b) => b.boundaries - a.boundaries)
+    : boundaryStats(state.matches);
+  const economy = useServer
+    ? bowling.map((b: any) => b).sort((a: any, b: any) => Number(a.economy) - Number(b.economy))
+    : [...playerBowlingStats(state.matches)].sort((a, b) => Number(a.economy) - Number(b.economy));
+  const average = useServer
+    ? batting.map((b: any) => b).sort((a: any, b: any) => Number(b.average === "-" ? -1 : b.average) - Number(a.average === "-" ? -1 : a.average))
+    : [...playerBattingStats(state.matches)].sort((a: any, b: any) => Number(b.average === "-" ? -1 : b.average) - Number(a.average === "-" ? -1 : a.average));
 
   const tabs = [
     { id: "runs", label: "Runs" }, { id: "wickets", label: "Wickets" }, { id: "mvp", label: "MVP" },
@@ -431,13 +599,58 @@ function StatsPanel({ title, headers, rows, chartData, valueKey, barColor }: { t
 /* ──────── TEAMS ──────── */
 function Teams() {
   const { state } = useApp();
-  const teams = teamStats(state.matches);
-  const hur = teamWinRate(state.matches, "HURRICANES");
-  const dom = teamWinRate(state.matches, "DOMINATORS");
-  const rr = matchRunRates(state.matches);
-  const hurComp = runsComposition(state.matches, "HURRICANES");
-  const domComp = runsComposition(state.matches, "DOMINATORS");
-  const fa = teamForAgainst(state.matches);
+
+  const [teamAgg, setTeamAgg] = useState<TeamAggregatesResponse | null>(null);
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    fetchTeamAggregates().then(setTeamAgg).catch(() => {});
+  }, []);
+
+  const useServer = isSupabaseConfigured && teamAgg !== null;
+
+  const teams = useServer ? teamAgg!.teamStats.map(t => ({
+    team: t.team, matches: t.matches, wins: t.wins, losses: t.losses,
+    runs: t.runs, highest: t.highest, lowest: t.lowest,
+    averageScore: t.matches ? (t.runs / t.matches).toFixed(1) : "-",
+    runRate: t.balls ? ((t.runs * 6) / t.balls).toFixed(2) : "-",
+    extras: t.extras
+  })) : teamStats(state.matches);
+
+  const hur = useServer ? (() => {
+    const t = teamAgg!.teamStats.find(x => x.team === "HURRICANES");
+    const d = t ? (t.wins + t.losses) : 0;
+    return { team: "HURRICANES", wins: t?.wins ?? 0, losses: t?.losses ?? 0, noResult: (t?.matches ?? 0) - (t?.wins ?? 0) - (t?.losses ?? 0), total: t?.matches ?? 0, rate: d ? (t?.wins ?? 0) / d : 0 };
+  })() : teamWinRate(state.matches, "HURRICANES");
+
+  const dom = useServer ? (() => {
+    const t = teamAgg!.teamStats.find(x => x.team === "DOMINATORS");
+    const d = t ? (t.wins + t.losses) : 0;
+    return { team: "DOMINATORS", wins: t?.wins ?? 0, losses: t?.losses ?? 0, noResult: (t?.matches ?? 0) - (t?.wins ?? 0) - (t?.losses ?? 0), total: t?.matches ?? 0, rate: d ? (t?.wins ?? 0) / d : 0 };
+  })() : teamWinRate(state.matches, "DOMINATORS");
+
+  const rr = useServer ? teamAgg!.runRates.map(r => ({ name: r.name, [r.team1]: r.rr1, [r.team2]: r.rr2 })) : matchRunRates(state.matches);
+
+  const hurComp = useServer ? (() => {
+    const c = teamAgg!.composition.find(x => x.team === "HURRICANES") ?? { fours: 0, sixes: 0, rotation: 0 };
+    return [
+      { name: "Fours", value: c.fours, color: "#22c55e" },
+      { name: "Sixes", value: c.sixes, color: "#f97316" },
+      { name: "Rotation", value: c.rotation, color: "#3b82f6" }
+    ];
+  })() : runsComposition(state.matches, "HURRICANES");
+
+  const domComp = useServer ? (() => {
+    const c = teamAgg!.composition.find(x => x.team === "DOMINATORS") ?? { fours: 0, sixes: 0, rotation: 0 };
+    return [
+      { name: "Fours", value: c.fours, color: "#22c55e" },
+      { name: "Sixes", value: c.sixes, color: "#f97316" },
+      { name: "Rotation", value: c.rotation, color: "#3b82f6" }
+    ];
+  })() : runsComposition(state.matches, "DOMINATORS");
+
+  const fa = useServer
+    ? teamAgg!.forAgainst.map(f => ({ team: f.team, scored: f.scored, conceded: f.conceded }))
+    : teamForAgainst(state.matches);
 
   return (
     <Page title="Team performance">
@@ -493,7 +706,14 @@ function Teams() {
 /* ──────── GROUNDS ──────── */
 function Grounds() {
   const { state } = useApp();
-  const grounds = groundStats(state.matches);
+
+  const [venueAgg, setVenueAgg] = useState<VenueAggregate[] | null>(null);
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    fetchVenueAggregates().then(setVenueAgg).catch(() => {});
+  }, []);
+
+  const grounds = isSupabaseConfigured && venueAgg !== null ? venueAgg : groundStats(state.matches);
 
   return (
     <Page title="Ground stats">
