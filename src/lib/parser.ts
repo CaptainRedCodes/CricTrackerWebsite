@@ -399,10 +399,14 @@ export function createMatchFingerprint(matchDate: string | undefined, inningsOne
     .map((innings) => `${String(innings.battingTeam).toUpperCase()}:${innings.totalRuns}/${innings.totalWickets}/${innings.overs}`)
     .sort()
     .join("|");
-  return id("fp", matchNum ?? matchDate ?? "unknown-date", teams, scores);
+  const base = matchNum ?? matchDate ?? "unknown-date";
+  return id("fp", base, teams, scores);
 }
 
 function extractMatchNumber(filename: string): string | null {
-  const match = filename.match(/scorecard[^\d]*(\d{5,})/i);
-  return match ? match[1] : null;
+  const digits = filename.replace(/\.pdf$/i, "").match(/\d+/g);
+  if (!digits) return null;
+  const long = digits.filter((d) => d.length >= 5);
+  if (long.length) return long[0];
+  return digits[digits.length - 1];
 }
