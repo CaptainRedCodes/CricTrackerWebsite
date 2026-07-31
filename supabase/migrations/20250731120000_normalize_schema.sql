@@ -260,20 +260,20 @@ begin
     coalesce((sp->>'isCaptain')::boolean, false)
   from jsonb_array_elements(payload->'squads') as sp;
 
-  for inn in select * from jsonb_array_elements(payload->'innings')
+  for inn in select jsonb_array_elements(payload->'innings') as inn_data
   loop
     insert into public.innings (
       id, match_id, innings_number, batting_team, bowling_team,
       total_runs, total_wickets, overs, crr,
       extras_total, extras_wide, extras_noball, extras_bye, extras_legbye
     ) values (
-      inn->>'id', payload->>'id',
-      (inn->>'inningsNumber')::int, inn->>'battingTeam', inn->>'bowlingTeam',
-      (inn->>'totalRuns')::int, (inn->>'totalWickets')::int,
-      inn->>'overs', (inn->>'crr')::numeric,
-      (inn->>'extrasTotal')::int, (inn->>'extrasWide')::int,
-      (inn->>'extrasNoball')::int, (inn->>'extrasBye')::int,
-      (inn->>'extrasLegbye')::int
+      inn.inn_data->>'id', payload->>'id',
+      (inn.inn_data->>'inningsNumber')::int, inn.inn_data->>'battingTeam', inn.inn_data->>'bowlingTeam',
+      (inn.inn_data->>'totalRuns')::int, (inn.inn_data->>'totalWickets')::int,
+      inn.inn_data->>'overs', (inn.inn_data->>'crr')::numeric,
+      (inn.inn_data->>'extrasTotal')::int, (inn.inn_data->>'extrasWide')::int,
+      (inn.inn_data->>'extrasNoball')::int, (inn.inn_data->>'extrasBye')::int,
+      (inn.inn_data->>'extrasLegbye')::int
     );
 
     insert into public.batting_performances (
@@ -282,7 +282,7 @@ begin
       runs, balls, minutes, fours, sixes, strike_rate
     )
     select
-      b->>'id', inn->>'id', (b->>'orderNo')::int,
+      b->>'id', inn.inn_data->>'id', (b->>'orderNo')::int,
       b->>'playerId', b->>'playerNameRaw', b->>'team',
       coalesce((b->>'isCaptain')::boolean, false),
       nullif(b->>'battingStyle', ''),
@@ -290,7 +290,7 @@ begin
       coalesce(b->>'dismissalType', 'other'),
       (b->>'runs')::int, (b->>'balls')::int, (b->>'minutes')::int,
       (b->>'fours')::int, (b->>'sixes')::int, (b->>'strikeRate')::numeric
-    from jsonb_array_elements(inn->'batting') as b;
+    from jsonb_array_elements(inn.inn_data->'batting') as b;
 
     insert into public.bowling_performances (
       id, innings_id, order_no, player_id, player_name_raw,
@@ -298,23 +298,23 @@ begin
       dot_balls, fours_conceded, sixes_conceded, wides, noballs, economy
     )
     select
-      b->>'id', inn->>'id', (b->>'orderNo')::int,
+      b->>'id', inn.inn_data->>'id', (b->>'orderNo')::int,
       b->>'playerId', b->>'playerNameRaw', b->>'team',
       coalesce((b->>'isCaptain')::boolean, false),
       b->>'overs', (b->>'maidens')::int, (b->>'runsConceded')::int, (b->>'wickets')::int,
       (b->>'dotBalls')::int, (b->>'foursConceded')::int, (b->>'sixesConceded')::int,
       (b->>'wides')::int, (b->>'noballs')::int, (b->>'economy')::numeric
-    from jsonb_array_elements(inn->'bowling') as b;
+    from jsonb_array_elements(inn.inn_data->'bowling') as b;
 
     insert into public.fall_of_wickets (innings_id, wicket_number, score_at_fall, batter_out, "over")
     select
-      inn->>'id', (f->>'wicketNumber')::int, (f->>'scoreAtFall')::int,
+      inn.inn_data->>'id', (f->>'wicketNumber')::int, (f->>'scoreAtFall')::int,
       coalesce(f->>'batterOut', ''), coalesce(f->>'over', '')
-    from jsonb_array_elements(inn->'fallOfWickets') as f;
+    from jsonb_array_elements(inn.inn_data->'fallOfWickets') as f;
 
     insert into public.did_not_bat (innings_id, player_name)
-    select inn->>'id', p
-    from jsonb_array_elements_text(inn->'didNotBat') as p;
+    select inn.inn_data->>'id', p
+    from jsonb_array_elements_text(inn.inn_data->'didNotBat') as p;
   end loop;
 end;
 $$;
