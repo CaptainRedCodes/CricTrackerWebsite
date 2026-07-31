@@ -506,71 +506,66 @@ language sql
 security definer
 set search_path = ''
 as $$
+  with venue_matches as (
+    select
+      coalesce(nullif(m.ground, ''), 'Unknown venue') as venue,
+      m.id as match_id,
+      m.match_date,
+      m.winner_team,
+      (select i.total_runs from public.innings i where i.match_id = m.id and i.innings_number = 1) as s1,
+      (select i.total_runs from public.innings i where i.match_id = m.id and i.innings_number = 2) as s2,
+      (select i.total_wickets from public.innings i where i.match_id = m.id and i.innings_number = 1) as w1,
+      (select i.total_wickets from public.innings i where i.match_id = m.id and i.innings_number = 2) as w2
+    from public.matches m
+  ),
+  venue_base as (
+    select
+      venue,
+      count(*)::int as matches,
+      round((sum(s1 + s2) / count(*)::numeric), 1) as avg_runs,
+      max(greatest(s1, s2))::int as highest,
+      min(least(s1, s2))::int as lowest,
+      round((sum(w1 + w2) / count(*)::numeric), 1) as avg_wickets,
+      max(match_date::text) as last_match
+    from venue_matches
+    group by venue
+  ),
+  venue_best_bowler as (
+    select distinct on (vm.venue)
+      vm.venue,
+      bp.player_name_raw as bowler_name,
+      bp.wickets as bowler_wickets
+    from venue_matches vm
+    join public.innings inn on inn.match_id = vm.match_id
+    join public.bowling_performances bp on bp.innings_id = inn.id
+    order by vm.venue, bp.wickets desc, bp.runs_conceded asc
+  ),
+  venue_top_wins as (
+    select distinct on (vm.venue)
+      vm.venue,
+      vm.winner_team as top_team,
+      count(*) over (partition by vm.venue, vm.winner_team) as win_count
+    from venue_matches vm
+    where vm.winner_team is not null
+    order by vm.venue, count(*) over (partition by vm.venue, vm.winner_team) desc
+  )
   select coalesce(jsonb_agg(
     jsonb_build_object(
-      'ground', g.ground,
-      'matches', g.matches,
-      'avgRuns', g.avg_runs,
-      'highest', g.highest,
-      'lowest', g.lowest,
-      'avgWickets', g.avg_wickets,
-      'lastMatch', g.last_match,
-      'bestBowler', coalesce(g.best_bowler, '-'),
-      'bestFigures', coalesce(g.best_figures, 0),
-      'topWinsTeam', coalesce(g.top_wins_team, '-'),
-      'topWinsCount', coalesce(g.top_wins_count, 0)
+      'ground', vb.venue,
+      'matches', vb.matches,
+      'avgRuns', vb.avg_runs,
+      'highest', vb.highest,
+      'lowest', vb.lowest,
+      'avgWickets', vb.avg_wickets,
+      'lastMatch', vb.last_match,
+      'bestBowler', coalesce(vbb.bowler_name, '-'),
+      'bestFigures', coalesce(vbb.bowler_wickets, 0),
+      'topWinsTeam', coalesce(vtw.top_team, '-'),
+      'topWinsCount', coalesce(vtw.win_count, 0)
     )
-    order by g.matches desc
+    order by vb.matches desc
   ), '[]'::jsonb)
-  from (
-    select
-      coalesce(nullif(m.ground, ''), 'Unknown venue') as ground,
-      count(*)::int as matches,
-      round((sum(i1.total_runs + i2.total_runs) / count(*)::numeric), 1) as avg_runs,
-      max(greatest(i1.total_runs, i2.total_runs))::int as highest,
-      min(least(i1.total_runs, i2.total_runs))::int as lowest,
-      round((sum(i1.total_wickets + i2.total_wickets) / count(*)::numeric), 1) as avg_wickets,
-      max(m.match_date::text) as last_match,
-      (
-        select bop.player_name_raw
-        from public.innings inn
-        join public.bowling_performances bop on bop.innings_id = inn.id
-        where inn.match_id = m.id
-        order by bop.wickets desc
-        limit 1
-      ) as best_bowler,
-      (
-        select bop.wickets
-        from public.innings inn
-        join public.bowling_performances bop on bop.innings_id = inn.id
-        where inn.match_id = m.id
-        order by bop.wickets desc
-        limit 1
-      ) as best_figures,
-      (
-        select mode() within group (order by m2.winner_team)
-        from public.matches m2
-        where coalesce(nullif(m2.ground, ''), 'Unknown venue') = coalesce(nullif(m.ground, ''), 'Unknown venue')
-          and m2.winner_team is not null
-      ) as top_wins_team,
-      (
-        select count(*)::int
-        from public.matches m2
-        where coalesce(nullif(m2.ground, ''), 'Unknown venue') = coalesce(nullif(m.ground, ''), 'Unknown venue')
-          and m2.winner_team = (
-            select mode() within group (order by m3.winner_team)
-            from public.matches m3
-            where coalesce(nullif(m3.ground, ''), 'Unknown venue') = coalesce(nullif(m.ground, ''), 'Unknown venue')
-              and m3.winner_team is not null
-          )
-      ) as top_wins_count
-    from public.matches m
-    left join lateral (
-      select * from public.innings where match_id = m.id and innings_number = 1
-    ) i1 on true
-    left join lateral (
-      select * from public.innings where match_id = m.id and innings_number = 2
-    ) i2 on true
-    group by coalesce(nullif(m.ground, ''), 'Unknown venue')
-  ) g;
+  from venue_base vb
+  left join venue_best_bowler vbb on vbb.venue = vb.venue
+  left join venue_top_wins vtw on vtw.venue = vb.venue;
 $$;
