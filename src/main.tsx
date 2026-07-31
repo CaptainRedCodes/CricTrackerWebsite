@@ -87,7 +87,7 @@ function Layout() {
           <div><strong>SL Tracker</strong><span>Tournament Analytics</span></div>
           <img src="/teamlogos/dominators.png" alt="DOM" />
         </div>
-        <nav className={`navLinks${menuOpen ? " open" : ""}`}>
+        <nav className="navLinks">
           <NavLink to="/"><Home size={16} /> Overview</NavLink>
           <NavLink to="/matches"><CalendarDays size={16} /> Matches</NavLink>
           <NavLink to="/players"><Users size={16} /> Players</NavLink>
@@ -99,6 +99,23 @@ function Layout() {
         </button>
         <StorageBadge />
       </aside>
+
+      {/* Mobile drawer nav — separate from sidebar, slides in from right */}
+      <div className={`mobileBackdrop${menuOpen ? " open" : ""}`} onClick={() => setMenuOpen(false)} />
+      <nav className={`mobileNav${menuOpen ? " open" : ""}`}>
+        <div className="mobileNavHead">
+          <strong>SL Tracker</strong>
+          <button className="hamburger" onClick={() => setMenuOpen(false)} aria-label="Close menu">
+            <X size={20} />
+          </button>
+        </div>
+        <NavLink to="/" onClick={() => setMenuOpen(false)}><Home size={16} /> Overview</NavLink>
+        <NavLink to="/matches" onClick={() => setMenuOpen(false)}><CalendarDays size={16} /> Matches</NavLink>
+        <NavLink to="/players" onClick={() => setMenuOpen(false)}><Users size={16} /> Players</NavLink>
+        <NavLink to="/teams" onClick={() => setMenuOpen(false)}><BarChart3 size={16} /> Teams</NavLink>
+        <NavLink to="/grounds" onClick={() => setMenuOpen(false)}><MapPin size={16} /> Grounds</NavLink>
+      </nav>
+
       <main onClick={() => setMenuOpen(false)}>
         <Routes>
           <Route path="/" element={<Dashboard />} />

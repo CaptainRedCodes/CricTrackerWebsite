@@ -650,27 +650,46 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
   .brand div { display: block; }
   .brand div strong { font-size: 0.78rem; }
 
-  /* nav hidden behind hamburger; slides in from right */
-  .navLinks {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    flex-direction: column; justify-content: flex-start; gap: 0;
-    padding: 60px 16px 32px;
-    background: rgba(255, 252, 244, 0.97);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    transform: translateX(100%);
-    transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  .navLinks { display: none; }
+
+  /* ── mobile drawer nav ── */
+  .mobileBackdrop {
+    position: fixed; inset: 0;
+    background: rgba(24,35,30,0.4);
+    z-index: 49; opacity: 0; pointer-events: none;
+    transition: opacity 220ms ease;
+  }
+  .mobileBackdrop.open { opacity: 1; pointer-events: auto; }
+
+  .mobileNav {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: min(320px, 85vw);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
     z-index: 50; overflow-y: auto; overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
+    transform: translateX(100%);
+    transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex; flex-direction: column; gap: 0;
+    padding: 0 0 24px;
   }
-  .navLinks.open { transform: translateX(0); }
-  .navLinks a {
-    padding: 14px 16px; font-size: 1rem; border-radius: var(--r);
-    min-height: 48px;
+  .mobileNav.open { transform: translateX(0); }
+  .mobileNavHead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
   }
-  .navLinks a:active { background: var(--raised); }
-  .navLinks .uploadNav::before { display: none; }
-  .navLinks .uploadNav { margin-top: 8px; border-top: 1px solid var(--border-soft); border-radius: 0 0 var(--r) var(--r); padding-top: 14px; }
+  .mobileNavHead strong { font-size: 0.95rem; font-weight: 800; color: var(--text-high); }
+  .mobileNav a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px; font-size: 1rem; font-weight: 600;
+    color: var(--text-dim); border-radius: 0;
+    transition: background var(--ease), color var(--ease);
+  }
+  .mobileNav a:active { background: var(--raised); }
+  .mobileNav a.active { background: var(--raised); color: var(--text-high); box-shadow: none; }
+  .mobileNav .hamburger { display: flex; width: 36px; height: 36px; }
 
   main { padding: 14px 10px 64px; }
   h1 { font-size: 1.3rem; }
@@ -801,7 +820,7 @@ button:disabled { opacity: 0.3; cursor: not-allowed; }
   th { font-size: 0.6rem; padding: 6px 8px; }
   td { font-size: 0.7rem; padding: 6px 8px; }
   .tabs button { font-size: 0.7rem; padding: 6px 10px; }
-  .navLinks a { font-size: 0.88rem; padding: 12px 14px; }
+  .mobileNav a { font-size: 0.88rem; padding: 12px 14px; }
   .radialGauge { transform: scale(0.85); }
   .h2hScore { font-size: 1.6rem; }
   .fileDrop { min-height: 100px; padding: 16px; }
