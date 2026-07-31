@@ -1,4 +1,4 @@
-import type { Match } from "../types";
+import type { Innings, Match } from "../types";
 import { ballsToOversText, formatAverage, normalizePlayerName, oversToBalls, playerIdFromName } from "./cricket";
 
 export function getAllBatting(matches: Match[]) {
@@ -318,6 +318,36 @@ export function inningsWorm(innings: { battingTeam: string; totalRuns: number; t
   }
   // Prepend the starting point (0/0) so the line starts at the origin.
   return [{ over: 0, overText: "0", wicket: 0, score: 0, batter: "", final: false }, ...points];
+}
+
+// Merged innings progression — both teams on one chart for easy comparison.
+// Each team's worm points are interspersed; `connectNulls` on the Line
+// components keeps each line attached to its own data.
+export function matchWorm(innings: Innings[]) {
+  const raw: Array<{ over: number; overText: string; team: string; score: number; wicket: number; batter: string; final: boolean }> = [];
+  for (const inn of innings) {
+    for (const w of inningsWorm(inn)) {
+      raw.push({ ...w, team: inn.battingTeam });
+    }
+  }
+  raw.sort((a, b) => a.over - b.over);
+
+  const teams = [...new Set(raw.map((r) => r.team))];
+  const data = raw.map((r) => {
+    const row: Record<string, any> = { over: r.over, overText: r.overText };
+    for (const t of teams) {
+      if (r.team === t) {
+        row[t] = r.score;
+        row[`${t}_wicket`] = r.wicket;
+        row[`${t}_batter`] = r.batter;
+        row[`${t}_final`] = r.final;
+      } else {
+        row[t] = null;
+      }
+    }
+    return row;
+  });
+  return { data, teams };
 }
 
 export function boundaryStats(matches: Match[]) {

@@ -7,7 +7,7 @@ import type { Innings, Match, TrackerState } from "./types";
 import { appendMatch, findDuplicateMatch, loadState, saveState } from "./lib/storage";
 import { isSupabaseConfigured, loadRemoteState, saveRemoteMatch } from "./lib/supabase";
 import {
-  batterScatter, bowlerScatter, boundaryStats, dashboardStats, fieldingBreakdown, fieldingStats, groundStats, inningsWorm, matchRunRates, matchTrend, mvpStats, playerBattingStats, playerBowlingStats, playerFormSeries, runsComposition, teamForAgainst, teamStats, teamWinRate
+  batterScatter, bowlerScatter, boundaryStats, dashboardStats, fieldingBreakdown, fieldingStats, groundStats, inningsWorm, matchRunRates, matchTrend, matchWorm, mvpStats, playerBattingStats, playerBowlingStats, playerFormSeries, runsComposition, teamForAgainst, teamStats, teamWinRate
 } from "./lib/stats";
 import { extractPdfPages } from "./lib/pdf";
 import { parseMatchFromPages } from "./lib/parser";
@@ -60,6 +60,10 @@ function Layout() {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { setMenuOpen(false); }, [location]);
+  useEffect(() => {
+    document.body.style.overflow = menuOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [menuOpen]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === "U") { e.preventDefault(); navigate("/upload"); }
@@ -276,15 +280,17 @@ function MatchDetail() {
         <div><strong>Toss</strong><span>{m.tossWinner} {m.tossDecision}</span></div>
         <div><strong>Result</strong><span>{m.resultText}</span></div>
       </section>
+      <section className="panel chartPanel" style={{ marginBottom: 20 }}>
+        <PanelHeading title="Innings progression" meta="both innings overlaid" />
+        <MatchWormChart {...matchWorm(m.innings)} />
+      </section>
       {m.innings.map(inn => (
         <section className="panel" key={inn.id}>
           <div className="inningsHeader">
             <div><span>INNINGS {inn.inningsNumber}</span><h2>{inn.battingTeam}</h2></div>
             <strong>{inn.totalRuns}/{inn.totalWickets} <small>({inn.overs} ov · CRR {inn.crr})</small></strong>
           </div>
-          {/* worm chart per innings */}
-          <WormChart data={inningsWorm(inn)} color={inn.battingTeam === "HURRICANES" ? HUR : DOM} />
-          <div style={{ marginTop: 16, marginBottom: 4 }}>
+          <div style={{ marginTop: 4, marginBottom: 4 }}>
             <h3>Run contribution</h3>
           </div>
           <BattingContribution innings={inn} />
@@ -758,6 +764,76 @@ function WormTooltip({ active, payload }: any) {
       <div>Score: <b>{p.score}</b></div>
       {p.overText && p.overText !== "0" && <div>Over: <b>{p.overText}</b></div>}
       {p.batter && <div>Out: <b>{p.batter}</b></div>}
+    </div>
+  );
+}
+
+/* — combined match worm (both innings on one chart) — */
+function MatchWormChart({ data, teams }: { data: any[]; teams: string[] }) {
+  const colors: Record<string, string> = { "HURRICANES": HUR, "DOMINATORS": DOM };
+
+  // Use two passes per team so dots only appear on the owning team's points
+  return (
+    <div className="chart" style={{ height: 280 }}>
+      <ResponsiveContainer>
+        <LineChart data={data} margin={{ top: 6, right: 16, left: -10, bottom: 2 }}>
+          <CartesianGrid stroke={GRID} strokeDasharray="4 4" vertical={false} />
+          <XAxis type="number" dataKey="over" domain={[0, "dataMax"]} tickLine={false} axisLine={false} tick={axisTick} tickFormatter={(v) => `${v} ov`} tickMargin={6} />
+          <YAxis tickLine={false} axisLine={false} tick={axisTick} width={34} />
+          <Legend iconType="rect" wrapperStyle={{ paddingTop: 10 }} formatter={(v: string) => <span style={{ color: colors[v] || "#888", fontWeight: 700 }}>{v}</span>} />
+          <Tooltip content={<MatchWormTooltip teams={teams} />} />
+          {/* lines with connectNulls so each team's line hops over the other's points */}
+          {teams.map(t => (
+            <Line key={`line-${t}`} type="monotone" dataKey={t} stroke={colors[t] || "#888"} strokeWidth={2.5} strokeDasharray=""
+              connectNulls dot={false} activeDot={false} />
+          ))}
+          {/* invisible lines that only render dots — one per team */}
+          {teams.map(t => (
+            <Line key={`dot-${t}`} type="monotone" dataKey={t} stroke="transparent"
+              connectNulls={false}
+              dot={(dotProps: any) => {
+                const { cx, cy, payload: row } = dotProps;
+                if (row == null || row[t] == null) return <></>;
+                const isFinal = row[`${t}_final`];
+                return (
+                  <circle cx={cx} cy={cy}
+                    r={isFinal ? 3 : 4}
+                    fill={isFinal ? "transparent" : colors[t]}
+                    stroke={isFinal ? colors[t] : "var(--bg-card)"}
+                    strokeWidth={isFinal ? 2 : 1.5}
+                    strokeDasharray={isFinal ? "3 2" : ""} />
+                );
+              }} />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function MatchWormTooltip({ active, payload, teams }: any) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+
+  return (
+    <div className="chartTooltip">
+      <strong>Over {row.overText}</strong>
+      {teams.map((t: string) => {
+        const val = row[t];
+        if (val == null) return null;
+        const w = row[`${t}_wicket`];
+        const b = row[`${t}_batter`];
+        const f = row[`${t}_final`];
+        return (
+          <div key={t} style={{ marginTop: 3 }}>
+            <div><span style={{ background: t === "HURRICANES" ? HUR : DOM }} />{t} <b>{val}</b></div>
+            {!f && b ? <div style={{ fontSize: "0.7rem", color: "var(--text-dim)", paddingLeft: 15 }}>Out: {b} (W {w})</div>
+              : f ? <div style={{ fontSize: "0.7rem", color: "var(--text-dim)", paddingLeft: 15 }}>Innings end</div>
+              : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

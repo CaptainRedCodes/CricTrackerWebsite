@@ -1,3 +1,12 @@
+-- Normalized schema replacing the single JSON-blob matches table.
+-- WARNING: drops the old `matches` table and its data.
+-- Re-import your scorecards after running this migration.
+
+begin;
+
+-- Drop old schema
+drop table if exists public.matches cascade;
+
 -- ── players ──
 create table if not exists public.players (
   id text primary key,
@@ -8,8 +17,11 @@ create table if not exists public.players (
 
 alter table public.players enable row level security;
 
+drop policy if exists "public read players" on public.players;
 create policy "public read players" on public.players for select using (true);
+drop policy if exists "public insert players" on public.players;
 create policy "public insert players" on public.players for insert with check (true);
+drop policy if exists "public upsert players" on public.players;
 create policy "public upsert players" on public.players for update using (true) with check (true);
 
 -- ── matches ──
@@ -38,7 +50,9 @@ create index if not exists matches_winner_team_idx on public.matches (winner_tea
 
 alter table public.matches enable row level security;
 
+drop policy if exists "public read matches" on public.matches;
 create policy "public read matches" on public.matches for select using (true);
+drop policy if exists "public insert matches" on public.matches;
 create policy "public insert matches" on public.matches for insert with check (true);
 
 -- ── squad_players ──
@@ -56,7 +70,9 @@ create index if not exists squad_players_player_idx on public.squad_players (pla
 
 alter table public.squad_players enable row level security;
 
+drop policy if exists "public read squad_players" on public.squad_players;
 create policy "public read squad_players" on public.squad_players for select using (true);
+drop policy if exists "public insert squad_players" on public.squad_players;
 create policy "public insert squad_players" on public.squad_players for insert with check (true);
 
 -- ── innings ──
@@ -81,7 +97,9 @@ create index if not exists innings_match_idx on public.innings (match_id);
 
 alter table public.innings enable row level security;
 
+drop policy if exists "public read innings" on public.innings;
 create policy "public read innings" on public.innings for select using (true);
+drop policy if exists "public insert innings" on public.innings;
 create policy "public insert innings" on public.innings for insert with check (true);
 
 -- ── batting_performances ──
@@ -109,7 +127,9 @@ create index if not exists batting_perf_player_idx on public.batting_performance
 
 alter table public.batting_performances enable row level security;
 
+drop policy if exists "public read batting_performances" on public.batting_performances;
 create policy "public read batting_performances" on public.batting_performances for select using (true);
+drop policy if exists "public insert batting_performances" on public.batting_performances;
 create policy "public insert batting_performances" on public.batting_performances for insert with check (true);
 
 -- ── bowling_performances ──
@@ -138,7 +158,9 @@ create index if not exists bowling_perf_player_idx on public.bowling_performance
 
 alter table public.bowling_performances enable row level security;
 
+drop policy if exists "public read bowling_performances" on public.bowling_performances;
 create policy "public read bowling_performances" on public.bowling_performances for select using (true);
+drop policy if exists "public insert bowling_performances" on public.bowling_performances;
 create policy "public insert bowling_performances" on public.bowling_performances for insert with check (true);
 
 -- ── fall_of_wickets ──
@@ -155,7 +177,9 @@ create index if not exists fow_innings_idx on public.fall_of_wickets (innings_id
 
 alter table public.fall_of_wickets enable row level security;
 
+drop policy if exists "public read fall_of_wickets" on public.fall_of_wickets;
 create policy "public read fall_of_wickets" on public.fall_of_wickets for select using (true);
+drop policy if exists "public insert fall_of_wickets" on public.fall_of_wickets;
 create policy "public insert fall_of_wickets" on public.fall_of_wickets for insert with check (true);
 
 -- ── did_not_bat ──
@@ -169,10 +193,12 @@ create index if not exists dnb_innings_idx on public.did_not_bat (innings_id);
 
 alter table public.did_not_bat enable row level security;
 
+drop policy if exists "public read did_not_bat" on public.did_not_bat;
 create policy "public read did_not_bat" on public.did_not_bat for select using (true);
+drop policy if exists "public insert did_not_bat" on public.did_not_bat;
 create policy "public insert did_not_bat" on public.did_not_bat for insert with check (true);
 
--- ── RPC: save a full match atomically ──
+-- ── RPC: atomic save of a full match (inserts into all normalized tables) ──
 create or replace function public.save_normalized_match(payload jsonb)
 returns void
 language plpgsql
@@ -233,7 +259,7 @@ begin
       total_runs, total_wickets, overs, crr,
       extras_total, extras_wide, extras_noball, extras_bye, extras_legbye
     ) values (
-      inn->>'id',  payload->>'id',
+      inn->>'id', payload->>'id',
       (inn->>'inningsNumber')::int, inn->>'battingTeam', inn->>'bowlingTeam',
       (inn->>'totalRuns')::int, (inn->>'totalWickets')::int,
       inn->>'overs', (inn->>'crr')::numeric,
@@ -285,7 +311,7 @@ begin
 end;
 $$;
 
--- ── RPC: load all matches as assembled JSON ──
+-- ── RPC: load all matches assembled from normalized tables ──
 create or replace function public.load_normalized_matches()
 returns jsonb
 language sql
@@ -397,3 +423,5 @@ as $$
     from public.matches m
   ) sub;
 $$;
+
+commit;
