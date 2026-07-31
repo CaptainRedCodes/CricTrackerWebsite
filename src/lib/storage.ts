@@ -55,13 +55,12 @@ export function saveState(state: TrackerState) {
 export function findDuplicateMatch(state: TrackerState, match: Match): Match | undefined {
   return state.matches.find((item) => {
     const sameFingerprint = item.fingerprint && item.fingerprint === match.fingerprint;
-    const sameFilename = item.sourcePdfFilename && match.sourcePdfFilename && item.sourcePdfFilename === match.sourcePdfFilename;
     const sameDate = item.matchDate === match.matchDate;
     const existingTeams = [item.teamA, item.teamB].map(String).sort().join("|");
     const incomingTeams = [match.teamA, match.teamB].map(String).sort().join("|");
     const existingScores = item.innings.map((innings) => `${innings.battingTeam}:${innings.totalRuns}/${innings.totalWickets}/${innings.overs}`).sort().join("|");
     const incomingScores = match.innings.map((innings) => `${innings.battingTeam}:${innings.totalRuns}/${innings.totalWickets}/${innings.overs}`).sort().join("|");
-    return sameFingerprint || sameFilename || (sameDate && existingTeams === incomingTeams && existingScores === incomingScores);
+    return sameFingerprint || (sameDate && existingTeams === incomingTeams && existingScores === incomingScores);
   });
 }
 

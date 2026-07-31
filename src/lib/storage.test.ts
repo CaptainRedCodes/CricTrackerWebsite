@@ -13,11 +13,11 @@ describe("match duplicate detection", () => {
     expect(() => appendMatch(state, sameMatchDifferentFilename)).toThrow("already exists");
   });
 
-  it("detects duplicate filenames", () => {
+  it("does not flag different matches with the same filename as duplicates", () => {
     const match = parseMatchFromPages(samplePages, "same-file.pdf");
-    const renamedContent = { ...match, id: "different-id", fingerprint: "different-fingerprint" };
+    const differentMatch = { ...match, id: "different-id", fingerprint: "different-fingerprint", innings: [] };
     const state = { matches: [match], players: [] };
 
-    expect(findDuplicateMatch(state, renamedContent)?.sourcePdfFilename).toBe("same-file.pdf");
+    expect(findDuplicateMatch(state, differentMatch)).toBeUndefined();
   });
 });
