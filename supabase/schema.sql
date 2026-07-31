@@ -179,6 +179,8 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  inn record;
 begin
   insert into public.players (id, canonical_name, aliases)
   select distinct on (sp->>'playerId')
