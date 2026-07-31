@@ -4,7 +4,7 @@ import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, use
 import { ArrowDownRight, ArrowUpRight, BarChart3, CalendarDays, CheckCircle2, Cloud, Database, Handshake, Home, MapPin, Menu, RefreshCw, Shield, Swords, X, Target, TrendingUp, Trophy, UploadCloud, Users, Zap, Command } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
 import type { Innings, Match, TrackerState } from "./types";
-import { appendMatch, findDuplicateMatch, loadState, saveState } from "./lib/storage";
+import { appendMatch, emptyState, findDuplicateMatch, loadState, saveState } from "./lib/storage";
 import { isSupabaseConfigured, loadRemoteState, saveRemoteMatch } from "./lib/supabase";
 import {
   batterScatter, bowlerScatter, boundaryStats, dashboardStats, fieldingBreakdown, fieldingStats, groundStats, inningsWorm, matchRunRates, matchTrend, matchWorm, mvpStats, playerBattingStats, playerBowlingStats, playerFormSeries, runsComposition, teamForAgainst, teamStats, teamWinRate
@@ -40,6 +40,9 @@ function AppProvider({ children }: { children: React.ReactNode }) {
       setStatus(r.matches.length ? "Supabase" : "No data");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Not connected");
+      const empty = emptyState();
+      setState(empty);
+      saveState(empty);
     }
     setReady(true);
   };
