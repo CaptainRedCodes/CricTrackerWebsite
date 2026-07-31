@@ -4,7 +4,7 @@ import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, use
 import { ArrowDownRight, ArrowUpRight, BarChart3, CalendarDays, CheckCircle2, Cloud, Database, Handshake, Home, MapPin, Menu, RefreshCw, Shield, Swords, X, Target, TrendingUp, Trophy, UploadCloud, Users, Zap, Command } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
 import type { Innings, Match, TrackerState } from "./types";
-import { appendMatch, emptyState, findDuplicateMatch, loadState, saveState } from "./lib/storage";
+import { appendMatch, defaultState, emptyState, findDuplicateMatch, loadState, saveState } from "./lib/storage";
 import { isSupabaseConfigured, loadRemoteState, saveRemoteMatch } from "./lib/supabase";
 import {
   batterScatter, bowlerScatter, boundaryStats, dashboardStats, fieldingBreakdown, fieldingStats, groundStats, inningsWorm, matchRunRates, matchTrend, matchWorm, mvpStats, playerBattingStats, playerBowlingStats, playerFormSeries, runsComposition, teamForAgainst, teamStats, teamWinRate
@@ -14,14 +14,14 @@ import { parseMatchFromPages } from "./lib/parser";
 import "./styles.css";
 
 /* ──────── shared chart constants ──────── */
-const HUR = "#3b82f6";
-const DOM = "#f97316";
-const RUNS = "#22c55e";
-const WKTS = "#8b5cf6";
-const EXTRAS = "#f59e0b";
-const GOLDE = "#fbbf24";
-const GRID = "#1b2633";
-const MUTED = "#6b7a8d";
+const HUR = "#3f7fbf";
+const DOM = "#d9772b";
+const RUNS = "#52a66a";
+const WKTS = "#9b7a48";
+const EXTRAS = "#c99a3d";
+const GOLDE = "#d0a23f";
+const GRID = "#21333d";
+const MUTED = "#7f9198";
 const axisTick = { fill: MUTED, fontSize: 11 };
 
 const AppContext = createContext<{ state: TrackerState; addMatch: (m: Match) => Promise<void>; ready: boolean; status: string; refetch: () => Promise<void> } | null>(null);
@@ -39,10 +39,14 @@ function AppProvider({ children }: { children: React.ReactNode }) {
       setState(r);
       setStatus(r.matches.length ? "Supabase" : "No data");
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Not connected");
-      const empty = emptyState();
-      setState(empty);
-      saveState(empty);
+      const cached = loadState();
+      if (cached.matches.length) {
+        setState(cached);
+        setStatus("Cached");
+      } else {
+        setState(defaultState());
+        setStatus("Demo data");
+      }
     }
     setReady(true);
   };
@@ -89,7 +93,6 @@ function Layout() {
           <NavLink to="/players"><Users size={16} /> Players</NavLink>
           <NavLink to="/teams"><BarChart3 size={16} /> Teams</NavLink>
           <NavLink to="/grounds"><MapPin size={16} /> Grounds</NavLink>
-          <NavLink to="/upload" className="uploadNav"><UploadCloud size={16} /> Upload</NavLink>
         </nav>
         <button className="hamburger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">
           {menuOpen ? <X size={20} /> : <Menu size={20} />}
@@ -122,15 +125,18 @@ function Dashboard() {
   const { state, ready, status, refetch } = useApp();
   const s = dashboardStats(state.matches);
   const rr = matchRunRates(state.matches);
-  const batting = playerBattingStats(state.matches).slice(0, 6);
-  const bowling = playerBowlingStats(state.matches).slice(0, 6);
+  const trend = matchTrend(state.matches);
+  const batting = playerBattingStats(state.matches).filter((p) => p.runs > 0).slice(0, 6);
+  const bowling = playerBowlingStats(state.matches).filter((p) => p.wickets > 0).slice(0, 6);
   const hur = teamWinRate(state.matches, "HURRICANES");
   const dom = teamWinRate(state.matches, "DOMINATORS");
   const allComp = runsComposition(state.matches);
   const latest = s.latestMatch;
+  const compositionTotal = allComp.reduce((sum, item) => sum + item.value, 0);
+  const hasMomentum = rr.length > 1;
 
   return (
-    <Page title="Overview" action={<Link className="button primaryButton" to="/upload"><UploadCloud size={16} /> Import scorecard</Link>}>
+    <Page title="Overview">
       {!ready && <section className="notice noticePanel">Preparing tournament data...</section>}
       {ready && state.matches.length === 0 && isSupabaseConfigured && (
         <section className="emptyState">
@@ -152,81 +158,73 @@ function Dashboard() {
         </section>
       )}
       {state.matches.length > 0 && (<>
-        {/* ── HERO with win-rate radial gauges ── */}
-        <section className="scoreHero">
-          <div className="teamTile">
-            <img src="/teamlogos/Hurricanes.png" alt="Hurricanes" className="teamLogo" />
-            <strong>HURRICANES</strong>
-            <span>{hur.wins}W · {hur.losses}L · {s.matchesPlayed} played</span>
-            <RadialGauge value={hur.rate} size={100} color={HUR} centerText={`${Math.round(hur.rate * 100)}%`} centerSub="WIN RATE" />
+        <section className="overviewBoard">
+          <div className="scoreLedger">
+            <div className="ledgerTeam hurricanes">
+              <img src="/teamlogos/Hurricanes.png" alt="Hurricanes" className="teamLogo" />
+              <div>
+                <span>Hurricanes</span>
+                <strong>{hur.wins}</strong>
+                <small>{hur.losses} losses</small>
+              </div>
+            </div>
+            <div className="ledgerCenter">
+              <div className="ledgerScore"><b>{hur.wins}</b><span>{s.matchesPlayed} matches</span><b>{dom.wins}</b></div>
+              {latest && <p className="heroRecent">{latest.teamA} <b>{latest.innings[0].totalRuns}/{latest.innings[0].totalWickets}</b> vs {latest.teamB} <b>{latest.innings[1].totalRuns}/{latest.innings[1].totalWickets}</b></p>}
+              {latest && <p className="heroResult">{latest.resultText}</p>}
+            </div>
+            <div className="ledgerTeam dominators">
+              <img src="/teamlogos/dominators.png" alt="Dominators" className="teamLogo" />
+              <div>
+                <span>Dominators</span>
+                <strong>{dom.wins}</strong>
+                <small>{dom.losses} losses</small>
+              </div>
+            </div>
           </div>
-          <div className="heroCenter">
-            <span className="statusPill">HEAD TO HEAD</span>
-            <div className="heroCount">{s.matchesPlayed}</div>
-            <div className="heroLabel">matches played</div>
-            {latest && <p className="heroRecent">{latest.teamA} <b>{latest.innings[0].totalRuns}/{latest.innings[0].totalWickets}</b>  —  {latest.teamB} <b>{latest.innings[1].totalRuns}/{latest.innings[1].totalWickets}</b></p>}
-            {latest && <p className="heroResult">{latest.resultText}</p>}
-          </div>
-          <div className="teamTile">
-            <img src="/teamlogos/dominators.png" alt="Dominators" className="teamLogo" />
-            <strong>DOMINATORS</strong>
-            <span>{dom.wins}W · {dom.losses}L · {s.matchesPlayed} played</span>
-            <RadialGauge value={dom.rate} size={100} color={DOM} centerText={`${Math.round(dom.rate * 100)}%`} centerSub="WIN RATE" />
+
+          <div className="insightRail">
+            <MetricCard icon={<Swords size={18} />} tone="runs" label="Top scorer" value={s.topBatter?.name ?? "-"} sub={s.topBatter ? `${s.topBatter.runs} runs · SR ${s.topBatter.strikeRate}` : ""} />
+            <MetricCard icon={<Shield size={18} />} tone="wickets" label="Top wicket-taker" value={s.topBowler?.name ?? "-"} sub={s.topBowler ? `${s.topBowler.wickets} wkts · Eco ${s.topBowler.economy}` : ""} />
+            <MetricCard icon={<Trophy size={18} />} tone="mvp" label="MVP leader" value={s.topMvp?.name ?? "-"} sub={s.topMvp ? `${s.topMvp.points} pts` : ""} />
+            <MetricCard icon={<Handshake size={18} />} tone="fielding" label="Best fielder" value={s.topFielder?.name ?? "-"} sub={s.topFielder ? `${s.topFielder.total} dismissals` : ""} />
           </div>
         </section>
 
-        {/* ── KEY METRICS ── */}
-        <div className="summaryGrid">
-          <MetricCard icon={<Swords size={18} />} tone="runs" label="Top Scorer" value={s.topBatter?.name ?? "-"} sub={s.topBatter ? `${s.topBatter.runs} runs · SR ${s.topBatter.strikeRate}` : ""} />
-          <MetricCard icon={<Shield size={18} />} tone="wickets" label="Top Wicket-taker" value={s.topBowler?.name ?? "-"} sub={s.topBowler ? `${s.topBowler.wickets} wkts · Eco ${s.topBowler.economy}` : ""} />
-          <MetricCard icon={<Trophy size={18} />} tone="mvp" label="MVP Leader" value={s.topMvp?.name ?? "-"} sub={s.topMvp ? `${s.topMvp.points} pts` : ""} />
-          <MetricCard icon={<Handshake size={18} />} tone="fielding" label="Best Fielder" value={s.topFielder?.name ?? "-"} sub={s.topFielder ? `${s.topFielder.total} dismissals` : ""} />
-        </div>
-
-        {/* ── RUN-RATE MOMENTUM (full width) ── */}
-        <section className="panel chartPanel">
-          <PanelHeading title="Run-rate momentum" meta="scoring pace per match" />
-          <div className="chart">
-            <ResponsiveContainer>
-              <LineChart data={rr} margin={{ top: 14, right: 24, left: -4, bottom: 0 }}>
-                <CartesianGrid stroke={GRID} strokeDasharray="4 4" vertical={false} />
-                <XAxis dataKey="name" tickLine={false} axisLine={false} tick={axisTick} tickMargin={8} />
-                <YAxis tickLine={false} axisLine={false} tick={axisTick} width={36} tickFormatter={(v) => `${v}`} />
-                <Tooltip content={<ChartTooltip />} />
-                <Legend iconType="rect" wrapperStyle={{ paddingTop: 14 }} />
-                <Line type="monotone" dataKey="HURRICANES" stroke={HUR} strokeWidth={2.5} dot={{ r: 4, fill: HUR }} activeDot={{ r: 7 }} connectNulls label={{ position: "top", fill: MUTED, fontSize: 10, fontWeight: 700, formatter: (v:number) => v }} />
-                <Line type="monotone" dataKey="DOMINATORS" stroke={DOM} strokeWidth={2.5} dot={{ r: 4, fill: DOM }} activeDot={{ r: 7 }} connectNulls label={{ position: "top", fill: MUTED, fontSize: 10, fontWeight: 700, formatter: (v:number) => v }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-
-        {/* ── COMPOSITION DONUT + LATEST WORM ── */}
-        <div className="dashboardGrid">
-          <section className="panel chartPanel">
-            <PanelHeading title="How runs are scored" meta="boundary breakdown" />
-            <Donut data={allComp} />
-            <Legend2 items={allComp} />
+        <div className="dashboardGrid dashboardGridPrimary">
+          <section className="panel chartPanel widePanel">
+            <PanelHeading title={hasMomentum ? "Scoring pace by match" : "Match scoreline"} meta={hasMomentum ? "run rate trend" : "single match available"} />
+            {hasMomentum ? <RunRateMomentumChart data={rr} /> : <ScorelineBars data={trend} />}
           </section>
           <section className="panel chartPanel">
+            <PanelHeading title="Run sources" meta={compositionTotal ? "all innings" : "no scoring data"} />
+            {compositionTotal ? <><Donut data={allComp} /><Legend2 items={allComp} /></> : <ChartEmpty title="No scoring split yet" detail="Import a scorecard with batting rows to compare fours, sixes, and rotation." />}
+          </section>
+        </div>
+
+        <div className="dashboardGrid dashboardGridPrimary reverseOnDesktop">
+          <section className="panel chartPanel widePanel">
             <PanelHeading title="Latest match — innings progression" meta={latest ? `${latest.teamA} vs ${latest.teamB}` : ""} />
             {latest && <WormMatch innings={latest.innings} />}
           </section>
-        </div>
-
-        {/* ── FORM LEADERBOARDS with sparklines ── */}
-        <div className="dashboardGrid" style={{ marginTop: 14 }}>
           <section className="panel leaderboardPanel">
-            <PanelHeading title="Top run-scorers" meta="season form" />
+            <PanelHeading title="Run table" meta="top six" />
             <FormBars data={batting} valueKey="runs" suffix="runs" color={RUNS} />
           </section>
+        </div>
+
+        <div className="dashboardGrid">
           <section className="panel leaderboardPanel">
-            <PanelHeading title="Top wicket-takers" meta="season form" />
+            <PanelHeading title="Wicket table" meta="top six" />
             <FormBars data={bowling} valueKey="wickets" suffix="wkts" color={WKTS} />
+          </section>
+          <section className="panel chartPanel">
+            <PanelHeading title="Scorecards" meta="latest first" />
+            <MiniMatchList matches={state.matches.slice(0, 4)} />
           </section>
         </div>
       </>)}
-      <div style={{ textAlign: "center", padding: "24px 0 0" }}>
+      <div className="shortcutHint">
         <span className="kbd" title="Import scorecards"><Command size={10} /> <span>Ctrl</span> + <span>Shift</span> + <span>U</span></span>
       </div>
     </Page>
@@ -389,20 +387,23 @@ function Players() {
 }
 
 function StatsPanel({ title, headers, rows, chartData, valueKey, barColor }: { title: string; headers: string[]; rows: Array<Array<React.ReactNode>>; chartData: any[]; valueKey: string; barColor: string }) {
+  const hasChartData = chartData.some((row) => Number(row[valueKey]) > 0);
   return (
     <section className="panel chartPanel">
       <PanelHeading title={title} meta="leaderboard" />
       <div className="statsSplit">
         <div className="chart compactChart">
-          <ResponsiveContainer>
-            <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 20, left: 0, bottom: 4 }}>
-              <CartesianGrid stroke={GRID} strokeDasharray="4 4" horizontal={false} />
-              <XAxis type="number" tickLine={false} axisLine={false} tick={axisTick} />
-              <YAxis dataKey="name" type="category" width={104} tickLine={false} axisLine={false} tick={axisTick} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey={valueKey} fill={barColor} radius={[0, 6, 6, 0]} barSize={16} />
-            </BarChart>
-          </ResponsiveContainer>
+          {hasChartData ? (
+            <ResponsiveContainer>
+              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 20, left: 0, bottom: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="4 4" horizontal={false} />
+                <XAxis type="number" tickLine={false} axisLine={false} tick={axisTick} />
+                <YAxis dataKey="name" type="category" width={104} tickLine={false} axisLine={false} tick={axisTick} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey={valueKey} fill={barColor} radius={[0, 6, 6, 0]} barSize={16} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <ChartEmpty title="No useful chart yet" detail="This leaderboard needs non-zero values before a bar comparison is meaningful." />}
         </div>
         <DataTable headers={headers} rows={rows} />
       </div>
@@ -607,6 +608,20 @@ function MetricCard({ icon, tone, label, value, sub }: { icon: React.ReactNode; 
   );
 }
 
+function MiniMatchList({ matches }: { matches: Match[] }) {
+  return (
+    <div className="miniMatchList">
+      {matches.map((match) => (
+        <Link to={`/matches/${match.id}`} className="miniMatch" key={match.id}>
+          <span>{match.matchDate}</span>
+          <strong>{match.innings.map((i) => `${i.battingTeam.slice(0, 3)} ${i.totalRuns}/${i.totalWickets}`).join("  ·  ")}</strong>
+          <small>{match.resultText}</small>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
@@ -618,6 +633,52 @@ function ChartTooltip({ active, payload, label }: any) {
           {p.name}: <b>{p.value}</b>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ChartEmpty({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="chartEmpty">
+      <BarChart3 size={24} />
+      <strong>{title}</strong>
+      <span>{detail}</span>
+    </div>
+  );
+}
+
+function RunRateMomentumChart({ data }: { data: any[] }) {
+  return (
+    <div className="chart">
+      <ResponsiveContainer>
+        <LineChart data={data} margin={{ top: 14, right: 24, left: -4, bottom: 0 }}>
+          <CartesianGrid stroke={GRID} strokeDasharray="4 4" vertical={false} />
+          <XAxis dataKey="name" tickLine={false} axisLine={false} tick={axisTick} tickMargin={8} />
+          <YAxis tickLine={false} axisLine={false} tick={axisTick} width={36} tickFormatter={(v) => `${v}`} />
+          <Tooltip content={<ChartTooltip />} />
+          <Legend iconType="rect" wrapperStyle={{ paddingTop: 14 }} />
+          <Line type="monotone" dataKey="HURRICANES" stroke={HUR} strokeWidth={2.5} dot={{ r: 4, fill: HUR }} activeDot={{ r: 7 }} connectNulls />
+          <Line type="monotone" dataKey="DOMINATORS" stroke={DOM} strokeWidth={2.5} dot={{ r: 4, fill: DOM }} activeDot={{ r: 7 }} connectNulls />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ScorelineBars({ data }: { data: any[] }) {
+  return (
+    <div className="chart">
+      <ResponsiveContainer>
+        <BarChart data={data} margin={{ top: 12, right: 20, left: -4, bottom: 0 }}>
+          <CartesianGrid stroke={GRID} strokeDasharray="4 4" vertical={false} />
+          <XAxis dataKey="name" tickLine={false} axisLine={false} tick={axisTick} />
+          <YAxis tickLine={false} axisLine={false} tick={axisTick} width={34} />
+          <Tooltip content={<ChartTooltip />} />
+          <Legend iconType="rect" wrapperStyle={{ paddingTop: 14 }} />
+          <Bar dataKey="HURRICANES" fill={HUR} radius={[6, 6, 0, 0]} />
+          <Bar dataKey="DOMINATORS" fill={DOM} radius={[6, 6, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -861,17 +922,17 @@ function EconomyWicketsScatter({ data }: { data: { name: string; economy: number
 
 /* — form bars with sparkline per row — */
 function FormBars({ data, valueKey, suffix, color }: { data: any[]; valueKey: string; suffix: string; color: string }) {
-  const { state } = useApp();
   const max = Math.max(...data.map(d => Number(d[valueKey]) || 0), 1);
+  if (!data.length) return <ChartEmpty title="No qualifying rows" detail={`This table will appear when players record ${suffix}.`} />;
   return (
     <div className="formBars">
-      {data.map(item => {
+      {data.map((item, index) => {
         const v = Number(item[valueKey]) || 0;
         return (
           <div className="formBar" key={item.playerId ?? item.name}>
             <div className="formBarHead">
+              <span className="rankNo">{index + 1}</span>
               <strong>{item.name}</strong>
-              <Sparkline data={playerFormSeries(state.matches, item.playerId, 6)} color={color} width={70} height={20} />
               <span>{v} {suffix}</span>
             </div>
             <progress value={v} max={max} style={{ ["--bar" as any]: color }} />
