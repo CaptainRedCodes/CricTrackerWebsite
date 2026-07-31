@@ -207,19 +207,25 @@ set search_path = ''
 as $$
 begin
   insert into public.players (id, canonical_name, aliases)
-  select
+  select distinct on (sp->>'playerId')
     sp->>'playerId',
     sp->>'playerNameRaw',
     jsonb_build_array(sp->>'playerNameRaw')
   from jsonb_array_elements(payload->'squads') as sp
   where sp->>'playerId' is not null
-  on conflict (id) do update
-    set aliases = case
-      when public.players.aliases @> jsonb_build_array(sp2->>'playerNameRaw') then public.players.aliases
-      else public.players.aliases || jsonb_build_array(sp2->>'playerNameRaw')
-    end
-    from jsonb_array_elements(payload->'squads') as sp2
-    where sp2->>'playerId' = public.players.id;
+  on conflict (id) do nothing;
+
+  -- merge any new aliases not already present
+  with incoming as (
+    select distinct sp->>'playerId' as pid, sp->>'playerNameRaw' as alias
+    from jsonb_array_elements(payload->'squads') as sp
+    where sp->>'playerId' is not null
+  )
+  update public.players
+  set aliases = public.players.aliases || jsonb_build_array(incoming.alias)
+  from incoming
+  where public.players.id = incoming.pid
+    and not public.players.aliases @> jsonb_build_array(incoming.alias);
 
   insert into public.matches (
     id, fingerprint, league_name, match_date, match_time, ground,
