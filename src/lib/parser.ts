@@ -370,7 +370,7 @@ export function parseMatchFromPages(pages: string[], sourcePdfFilename?: string)
   inningsTwo.bowling = inningsTwo.bowling.map((row) => ({ ...row, team: inningsTwo.bowlingTeam }));
   const squads = squadPage ? parseSquads(squadPage, inningsOne.battingTeam, inningsTwo.battingTeam) : [];
 
-  const fingerprint = createMatchFingerprint(details.matchDate, inningsOne, inningsTwo);
+  const fingerprint = createMatchFingerprint(details.matchDate, inningsOne, inningsTwo, sourcePdfFilename);
   return {
     id: id("match", fingerprint),
     fingerprint,
@@ -392,11 +392,17 @@ export function parseMatchFromPages(pages: string[], sourcePdfFilename?: string)
   };
 }
 
-export function createMatchFingerprint(matchDate: string | undefined, inningsOne: Innings, inningsTwo: Innings): string {
+export function createMatchFingerprint(matchDate: string | undefined, inningsOne: Innings, inningsTwo: Innings, sourcePdfFilename?: string): string {
+  const matchNum = sourcePdfFilename ? extractMatchNumber(sourcePdfFilename) : null;
   const teams = [inningsOne.battingTeam, inningsTwo.battingTeam].map((team) => String(team).toUpperCase()).sort().join("-vs-");
   const scores = [inningsOne, inningsTwo]
     .map((innings) => `${String(innings.battingTeam).toUpperCase()}:${innings.totalRuns}/${innings.totalWickets}/${innings.overs}`)
     .sort()
     .join("|");
-  return id("fp", matchDate ?? "unknown-date", teams, scores);
+  return id("fp", matchNum ?? matchDate ?? "unknown-date", teams, scores);
+}
+
+function extractMatchNumber(filename: string): string | null {
+  const match = filename.match(/scorecard[^\d]*(\d{5,})/i);
+  return match ? match[1] : null;
 }
