@@ -368,25 +368,34 @@ as $$
     ), '[]'::jsonb),
     'runRates', coalesce((
       select jsonb_agg(jsonb_build_object(
-        'name', coalesce(m.match_date::text, 'Match ' || row_number() over()),
-        'team1', (select i.batting_team from public.innings i where i.match_id = m.id and i.innings_number = 1),
-        'rr1', (select
-          case when overs_balls > 0 then round((i1.total_runs * 6.0 / overs_balls)::numeric, 2) else 0 end
-          from public.innings i1,
-          lateral (select (split_part(i1.overs, '.', 1)::int * 6) + coalesce(split_part(i1.overs, '.', 2)::int, 0) as overs_balls) ob
-          where i1.match_id = m.id and i1.innings_number = 1
-          limit 1
-        ),
-        'team2', (select i.batting_team from public.innings i where i.match_id = m.id and i.innings_number = 2),
-        'rr2', (select
-          case when overs_balls > 0 then round((i2.total_runs * 6.0 / overs_balls)::numeric, 2) else 0 end
-          from public.innings i2,
-          lateral (select (split_part(i2.overs, '.', 1)::int * 6) + coalesce(split_part(i2.overs, '.', 2)::int, 0) as overs_balls) ob
-          where i2.match_id = m.id and i2.innings_number = 2
-          limit 1
-        )
-      ) order by m.match_date asc)
-      from public.matches m
+        'name', mr.name,
+        'team1', mr.team1,
+        'rr1', mr.rr1,
+        'team2', mr.team2,
+        'rr2', mr.rr2
+      ) order by mr.sort_order)
+      from (
+        select
+          coalesce(m.match_date::text, 'Match ' || row_number() over (order by m.match_date asc nulls last)) as name,
+          row_number() over (order by m.match_date asc nulls last) as sort_order,
+          (select i.batting_team from public.innings i where i.match_id = m.id and i.innings_number = 1) as team1,
+          (select
+            case when ob.overs_balls > 0 then round((i1.total_runs * 6.0 / ob.overs_balls)::numeric, 2) else 0 end
+            from public.innings i1,
+            lateral (select (split_part(i1.overs, '.', 1)::int * 6) + coalesce(split_part(i1.overs, '.', 2)::int, 0) as overs_balls) ob
+            where i1.match_id = m.id and i1.innings_number = 1
+            limit 1
+          ) as rr1,
+          (select i.batting_team from public.innings i where i.match_id = m.id and i.innings_number = 2) as team2,
+          (select
+            case when ob2.overs_balls > 0 then round((i2.total_runs * 6.0 / ob2.overs_balls)::numeric, 2) else 0 end
+            from public.innings i2,
+            lateral (select (split_part(i2.overs, '.', 1)::int * 6) + coalesce(split_part(i2.overs, '.', 2)::int, 0) as overs_balls) ob2
+            where i2.match_id = m.id and i2.innings_number = 2
+            limit 1
+          ) as rr2
+        from public.matches m
+      ) mr
     ), '[]'::jsonb),
     'composition', coalesce((
       select jsonb_agg(jsonb_build_object(
@@ -428,7 +437,7 @@ as $$
     ), '[]'::jsonb),
     'matchTrends', coalesce((
       select jsonb_agg(jsonb_build_object(
-        'name', coalesce(md.name, ''),
+        'name', md.label,
         'team1', md.bat1,
         'score1', md.s1,
         'wickets1', md.w1,
@@ -437,10 +446,11 @@ as $$
         'wickets2', md.w2,
         'total', md.total,
         'extras', coalesce(md.extras, 0)
-      ) order by md.match_date asc)
+      ) order by md.sort_order)
       from (
         select
-          m.match_date,
+          coalesce(m.match_date::text, 'Match ' || row_number() over (order by m.match_date asc nulls last)) as label,
+          row_number() over (order by m.match_date asc nulls last) as sort_order,
           (select i.batting_team from public.innings i where i.match_id = m.id and i.innings_number = 1) as bat1,
           (select i.total_runs from public.innings i where i.match_id = m.id and i.innings_number = 1) as s1,
           (select i.total_wickets from public.innings i where i.match_id = m.id and i.innings_number = 1) as w1,
@@ -452,10 +462,8 @@ as $$
           )::int as total,
           coalesce(
             (select sum(i.extras_total) from public.innings i where i.match_id = m.id), 0
-          )::int as extras,
-          coalesce(m.match_date::text, 'Match ' || row_number() over()) as name
+          )::int as extras
         from public.matches m
-        order by m.match_date asc nulls last
       ) md
     ), '[]'::jsonb),
     'latestMatch', (
