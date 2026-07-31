@@ -355,6 +355,14 @@ function readGround(lines: string[]): string | undefined {
   return parts.join(" ").trim() || undefined;
 }
 
+function rekeyInnings(inn: Innings, matchId: string) {
+  const oldId = inn.id;
+  const newId = id("inn", matchId, inn.inningsNumber);
+  inn.id = newId;
+  inn.batting = inn.batting.map((b) => ({ ...b, id: b.id.replace(oldId, newId), inningsId: newId }));
+  inn.bowling = inn.bowling.map((b) => ({ ...b, id: b.id.replace(oldId, newId), inningsId: newId }));
+}
+
 export function parseMatchFromPages(pages: string[], sourcePdfFilename?: string): Match {
   if (pages.length < 3) throw parserError("expected a multi-page CricHeroes scorecard PDF.");
   const detailsPage = pages[0] ?? "";
@@ -371,8 +379,14 @@ export function parseMatchFromPages(pages: string[], sourcePdfFilename?: string)
   const squads = squadPage ? parseSquads(squadPage, inningsOne.battingTeam, inningsTwo.battingTeam) : [];
 
   const fingerprint = createMatchFingerprint(details.matchDate, inningsOne, inningsTwo, sourcePdfFilename);
+  const matchId = id("match", fingerprint);
+
+  // Regenerate sub-IDs scoped to this match so they are unique across matches
+  rekeyInnings(inningsOne, matchId);
+  rekeyInnings(inningsTwo, matchId);
+
   return {
-    id: id("match", fingerprint),
+    id: matchId,
     fingerprint,
     leagueName: details.leagueName,
     matchDate: details.matchDate,
